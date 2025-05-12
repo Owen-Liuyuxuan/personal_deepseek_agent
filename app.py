@@ -134,14 +134,21 @@ with st.sidebar:
         st.success("All memories cleared!")
     
     with st.expander("View Memories"):
-        for i, memory in enumerate(all_memories):
-            with st.expander(f"Memory {i+1}: {memory['content'][:30]}..."):
-                st.write(f"**Content:** {memory['content']}")
-                st.write(f"**Source:** {memory['source']}")
-                st.write(f"**Timestamp:** {memory['timestamp']}")
-                if st.button(f"Delete Memory #{i+1}", key=f"delete_{i}"):
-                    st.session_state.memory_manager.remove_memory(i)
-                    st.experimental_rerun()
+        if not all_memories:
+            st.write("No memories stored.")
+        else:
+            for i, memory in enumerate(all_memories):
+                # Use a container with custom styling instead of nested expanders
+                with st.container():
+                    st.markdown(f"<div class='memory-item'>", unsafe_allow_html=True)
+                    st.write(f"**Memory {i+1}:** {memory['content'][:30]}...")
+                    st.write(f"**Content:** {memory['content']}")
+                    st.write(f"**Source:** {memory['source']}")
+                    st.write(f"**Timestamp:** {memory['timestamp']}")
+                    if st.button(f"Delete Memory #{i+1}", key=f"delete_{i}"):
+                        st.session_state.memory_manager.remove_memory(i)
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
     
     st.divider()
     
@@ -198,11 +205,11 @@ with col1:
                         st.session_state.memory_manager.add_memory(memory_content, "chat_extraction")
                         st.success("Memory saved!")
                         st.session_state.suggested_memory = ""
-                        st.experimental_rerun()
+                        st.rerun()
                 
                 if st.button("Skip", key="skip_memory"):
                     st.session_state.suggested_memory = ""
-                    st.experimental_rerun()
+                    st.rerun()
 
 with col2:
     # File upload section - FIXED VERSION
@@ -237,7 +244,7 @@ with col2:
                     })
                     
                     st.success(f"File uploaded: {uploaded_file.name}")
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error uploading file: {str(e)}")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -254,11 +261,11 @@ with col2:
                     # Add button to remove file
                     if st.button(f"Remove", key=f"remove_file_{i}"):
                         st.session_state.uploaded_files.pop(i)
-                        st.experimental_rerun()
+                        st.rerun()
         
     
     # Extract memory button
-    if len(st.session_state.messages) > 1 and not st.session_state.suggested_memory:
+    if len(st.session_state.messages) >= 1 and not st.session_state.suggested_memory:
         if st.button("Extract Memory from Conversation"):
             try:
                 client = DeepseekClient(api_key=st.session_state.api_key)
@@ -268,7 +275,7 @@ with col2:
                         model=model
                     )
                     st.session_state.suggested_memory = suggested_memory
-                    st.experimental_rerun()
+                    st.rerun()
             except Exception as e:
                 st.error(f"Failed to extract memory: {str(e)}")
 # Get user input
@@ -394,9 +401,9 @@ with col_controls1:
     if st.button("Clear Chat"):
         st.session_state.messages = []
         st.session_state.search_results = None
-        st.experimental_rerun()
+        st.rerun()
 
 with col_controls2:
     if st.session_state.created_files and st.button("Clear Created Files"):
         st.session_state.created_files = []
-        st.experimental_rerun()
+        st.rerun()
