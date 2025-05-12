@@ -11,8 +11,10 @@ from api.search import GoogleSearchClient
 from memory.manager import MemoryManager
 from file_handlers.uploader import FileUploadHandler
 from file_handlers.creator import FileCreationHandler
-from utils.helpers import format_chat_history, create_system_prompt, truncate_messages_to_token_limit
+from utils.helpers import format_chat_history, create_system_prompt, truncate_messages_to_token_limit, generate_welcome_message
 from utils.parsers import parse_file_creations, extract_response_without_files, check_for_directory_structure
+from task_manager import TaskManager
+from system_api.notifications import send_notification, play_sound
 
 # Page configuration with wider layout
 st.set_page_config(
@@ -94,6 +96,11 @@ if "search_results" not in st.session_state:
 if "created_files" not in st.session_state:
     st.session_state.created_files = []
 
+if "task_manager" not in st.session_state:
+    st.session_state.task_manager = TaskManager()
+    # Start the task manager
+    st.session_state.task_manager.start()
+
 # Sidebar for settings and memory management
 with st.sidebar:
     st.title("Settings")
@@ -158,13 +165,38 @@ with st.sidebar:
         else:
             for i, file_info in enumerate(st.session_state.created_files):
                 st.write(f"**{i+1}.** {file_info['filename']} ({file_info.get('size', 'N/A')} bytes)")
+    
+    st.divider()
+    
+    st.header("System Settings")
+    
+    enable_notifications = st.checkbox("Enable System Notifications", value=True)
+    enable_sounds = st.checkbox("Enable System Sounds", value=True)
+    
+    if st.button("Send Test Notification"):
+        if enable_notifications:
+            send_notification("Deepseek Chat", "This is a test notification")
+            if enable_sounds:
+                play_sound("notification")
+            st.success("Test notification sent!")
+        else:
+            st.warning("Notifications are disabled")
 
 # Main chat interface
 col1, col2 = st.columns([3, 1])
 
+# Add this code after initializing the session state variables in app.py
+if "welcome_message" not in st.session_state:
+    st.session_state.welcome_message = generate_welcome_message(st.session_state.memory_manager)
+
+# Modify the main chat interface section to display the welcome message
 with col1:
     st.title("Deepseek Chat")
     
+    # Display welcome message
+    if st.session_state.welcome_message:
+        st.info(st.session_state.welcome_message)
+
     # Display search results if available
     if st.session_state.search_results:
         with st.container(height=200):

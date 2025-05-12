@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Deepseek Chat
+Comment=AI Assistant powered by Deepseek
+Exec=xdg-open http://localhost:8501
+Icon=/opt/deepseek-chat/icon.png
+Terminal=false
+Type=Application
+Categories=Utility;

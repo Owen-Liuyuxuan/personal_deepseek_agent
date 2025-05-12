@@ -1,0 +1,13 @@
+[Unit]
+Description=Deepseek Chat Assistant
+After=network.target
+
+[Service]
+User=YOUR_USERNAME
+WorkingDirectory=/opt/deepseek-chat
+ExecStart=/bin/bash /opt/deepseek-chat/launch.sh
+Restart=on-failure
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=multi-user.target

@@ -79,3 +79,57 @@ def truncate_messages_to_token_limit(messages: List[Dict[str, str]],
     result.sort(key=lambda msg: 0 if msg["role"] == "system" else 1)
     
     return result
+
+# Add this function after the existing imports
+def generate_welcome_message(memory_manager):
+    """Generate a welcome message based on memories and current time."""
+    import datetime
+    
+    current_hour = datetime.datetime.now().hour
+    
+    # Time-based greeting
+    if 5 <= current_hour < 12:
+        greeting = "Good morning"
+    elif 12 <= current_hour < 18:
+        greeting = "Good afternoon"
+    else:
+        greeting = "Good evening"
+    
+    # Get memories for personalization
+    memories = memory_manager.get_all_memories()
+    
+    if not memories:
+        return f"{greeting}! How can I assist you today?"
+    
+    # Create a personalized message using DeepseekClient
+    try:
+        client = DeepseekClient(api_key=os.environ.get("DEEPSEEK_API_KEY", ""))
+        memory_prompt = memory_manager.get_memory_prompt()
+        
+        system_message = {
+            "role": "system",
+            "content": (
+                f"Current time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                "Generate a warm, personalized welcome message (max 2 sentences) based on the user's "
+                "previous interactions and the current time of day. Be conversational and friendly."
+            )
+        }
+        
+        user_message = {
+            "role": "user",
+            "content": f"Time-based greeting: {greeting}\n\nUser memory information:\n{memory_prompt}"
+        }
+        
+        response = client.chat_completion(
+            messages=[system_message, user_message],
+            model="deepseek-chat",
+            temperature=0.7,
+            max_tokens=100
+        )
+        
+        welcome_message = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return welcome_message or f"{greeting}! How can I assist you today?"
+        
+    except Exception as e:
+        print(f"Error generating welcome message: {str(e)}")
+        return f"{greeting}! How can I assist you today?"
