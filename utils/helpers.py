@@ -1,5 +1,6 @@
 # deepseek_chat/utils/helpers.py
 from typing import List, Dict, Any, Optional
+import datetime
 
 def format_chat_history(messages: List[Dict[str, str]]) -> str:
     """Format chat history for display."""
@@ -14,9 +15,11 @@ def format_chat_history(messages: List[Dict[str, str]]) -> str:
 def create_system_prompt(memory_prompt: str = "", include_file_creation: bool = True) -> Dict[str, str]:
     """Create a system prompt with memory and file creation capabilities."""
     base_prompt = "You are a helpful AI assistant based on the Deepseek model. "
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     if include_file_creation:
         base_prompt += (
+            f"Current time: {current_time}\n\n"
             "You can create files by using the following syntax in your response:\n\n"
             "```filetype:filename\nfile content\n```\n\n"
             "For example, to create a Python file named app.py, use:\n"
@@ -81,7 +84,7 @@ def truncate_messages_to_token_limit(messages: List[Dict[str, str]],
     return result
 
 # Add this function after the existing imports
-def generate_welcome_message(memory_manager):
+def generate_welcome_message(memory_manager,client):
     """Generate a welcome message based on memories and current time."""
     import datetime
     
@@ -98,38 +101,28 @@ def generate_welcome_message(memory_manager):
     # Get memories for personalization
     memories = memory_manager.get_all_memories()
     
-    if not memories:
-        return f"{greeting}! How can I assist you today?"
+    memory_prompt = memory_manager.get_memory_prompt()
     
-    # Create a personalized message using DeepseekClient
-    try:
-        client = DeepseekClient(api_key=os.environ.get("DEEPSEEK_API_KEY", ""))
-        memory_prompt = memory_manager.get_memory_prompt()
-        
-        system_message = {
-            "role": "system",
-            "content": (
-                f"Current time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-                "Generate a warm, personalized welcome message (max 2 sentences) based on the user's "
-                "previous interactions and the current time of day. Be conversational and friendly."
-            )
-        }
-        
-        user_message = {
-            "role": "user",
-            "content": f"Time-based greeting: {greeting}\n\nUser memory information:\n{memory_prompt}"
-        }
-        
-        response = client.chat_completion(
-            messages=[system_message, user_message],
-            model="deepseek-chat",
-            temperature=0.7,
-            max_tokens=100
+    system_message = {
+        "role": "system",
+        "content": (
+            f"Current time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            "Generate a warm, personalized welcome message (max 2 sentences) Randomly in Chinese, English or Japanese based on the user's "
+            "previous interactions and the current time of day. Be conversational and friendly."
         )
-        
-        welcome_message = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        return welcome_message or f"{greeting}! How can I assist you today?"
-        
-    except Exception as e:
-        print(f"Error generating welcome message: {str(e)}")
-        return f"{greeting}! How can I assist you today?"
+    }
+    
+    user_message = {
+        "role": "user",
+        "content": f"Time-based greeting: {greeting}\n\nUser memory information:\n{memory_prompt}"
+    }
+    
+    response = client.chat_completion(
+        messages=[system_message, user_message],
+        model="deepseek-chat",
+        temperature=0.7,
+        max_tokens=100
+    )
+    
+    welcome_message = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return welcome_message or f"{greeting}! How can I assist you today?"

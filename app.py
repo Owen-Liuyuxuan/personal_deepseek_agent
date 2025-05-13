@@ -13,7 +13,6 @@ from file_handlers.uploader import FileUploadHandler
 from file_handlers.creator import FileCreationHandler
 from utils.helpers import format_chat_history, create_system_prompt, truncate_messages_to_token_limit, generate_welcome_message
 from utils.parsers import parse_file_creations, extract_response_without_files, check_for_directory_structure
-from task_manager import TaskManager
 from system_api.notifications import send_notification, play_sound
 
 # Page configuration with wider layout
@@ -95,11 +94,6 @@ if "search_results" not in st.session_state:
 
 if "created_files" not in st.session_state:
     st.session_state.created_files = []
-
-if "task_manager" not in st.session_state:
-    st.session_state.task_manager = TaskManager()
-    # Start the task manager
-    st.session_state.task_manager.start()
 
 # Sidebar for settings and memory management
 with st.sidebar:
@@ -187,7 +181,8 @@ col1, col2 = st.columns([3, 1])
 
 # Add this code after initializing the session state variables in app.py
 if "welcome_message" not in st.session_state:
-    st.session_state.welcome_message = generate_welcome_message(st.session_state.memory_manager)
+    client = DeepseekClient(api_key=st.session_state.api_key)
+    st.session_state.welcome_message = generate_welcome_message(st.session_state.memory_manager, client)
 
 # Modify the main chat interface section to display the welcome message
 with col1:
