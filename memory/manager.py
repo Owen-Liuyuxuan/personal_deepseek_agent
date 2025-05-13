@@ -59,6 +59,6 @@ class MemoryManager:
         for memory in self.memories:
             prompt += f"- {memory['content']}\n"
         
-        prompt += "\nPlease keep this information in mind during our conversation."
+        prompt += "\nPlease keep this information in mind during our conversation, but only extract some of them if it is relavant/useful.\n"
         
         return prompt

@@ -14,7 +14,7 @@ def format_chat_history(messages: List[Dict[str, str]]) -> str:
 
 def create_system_prompt(memory_prompt: str = "", include_file_creation: bool = True) -> Dict[str, str]:
     """Create a system prompt with memory and file creation capabilities."""
-    base_prompt = "You are a helpful AI assistant based on the Deepseek model. "
+    base_prompt = "You are a helpful AI assistant. Response should follow the defined formats and requirements."
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     if include_file_creation:
@@ -107,8 +107,9 @@ def generate_welcome_message(memory_manager,client):
         "role": "system",
         "content": (
             f"Current time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            "Generate a warm, personalized welcome message (max 2 sentences) Randomly in Chinese, English or Japanese based on the user's "
-            "previous interactions and the current time of day. Be conversational and friendly."
+            "You are an AI assistant that can generate personalized messages in Chinese, English or Japanese."
+            "Generate a warm, personalized welcome message (max 2 sentences) based on the user's "
+            "previous interactions and the current time of day. Be conversational and friendly. Return only the welcoming message.\n\n"
         )
     }
     
