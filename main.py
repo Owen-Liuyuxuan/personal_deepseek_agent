@@ -56,7 +56,7 @@ def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> b
     # Format the message for better readability in Feishu
     # The message_data dictionary contains: title, timestamp, text
     # Feishu webhook supports text messages with markdown formatting
-    formatted_message = f"**{message_data['title']}**\n\n**Timestamp:** {message_data['timestamp']}\n\n**Content:**\n{message_data['text']}"
+    formatted_message = f"**{message_data['title']}**\n\n{message_data['text']}"
     
     payload = {
         "msg_type": "text",
