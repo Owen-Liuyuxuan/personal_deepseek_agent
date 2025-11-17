@@ -10,18 +10,49 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Import agent classes for LangChain 1.0+
+# Import agent classes for LangChain
+# LangChain 1.0+ changed module structure - try multiple import strategies
+AgentExecutor = None
+create_openai_tools_agent = None
+
+# Strategy 1: Direct import from langchain.agents (works in 0.3.x)
 try:
     from langchain.agents import AgentExecutor, create_openai_tools_agent
-except ImportError as e:
-    # Fallback for different LangChain versions
+    logger.debug("Successfully imported from langchain.agents")
+except ImportError as e1:
+    logger.debug(f"Direct import failed: {e1}")
+    # Strategy 2: Try importing individually
     try:
-        from langchain.agents.agent import AgentExecutor
-        from langchain.agents.openai_tools import create_openai_tools_agent
+        from langchain.agents import AgentExecutor
+        from langchain.agents import create_openai_tools_agent
+        logger.debug("Successfully imported individually")
     except ImportError as e2:
-        logger.warning(f"Failed to import agent classes: {e}, {e2}")
-        AgentExecutor = None
-        create_openai_tools_agent = None
+        logger.debug(f"Individual import failed: {e2}")
+        # Strategy 3: Check if langchain.agents module exists and what it exports
+        try:
+            import langchain.agents as agents_module
+            available = [attr for attr in dir(agents_module) if not attr.startswith('_')]
+            logger.debug(f"Available in langchain.agents: {available[:10]}")
+            # Try to get AgentExecutor if it exists
+            if 'AgentExecutor' in available:
+                AgentExecutor = getattr(agents_module, 'AgentExecutor')
+            if 'create_openai_tools_agent' in available:
+                create_openai_tools_agent = getattr(agents_module, 'create_openai_tools_agent')
+            if AgentExecutor and create_openai_tools_agent:
+                logger.debug("Successfully imported via getattr")
+        except Exception as e3:
+            logger.debug(f"getattr import failed: {e3}")
+            # Strategy 4: Try legacy paths (for older versions)
+            try:
+                from langchain.agents.agent import AgentExecutor  # type: ignore
+                from langchain.agents.openai_tools import create_openai_tools_agent  # type: ignore
+                logger.debug("Successfully imported from legacy paths")
+            except ImportError as e4:
+                logger.warning(f"Failed to import agent classes. All strategies failed.")
+                logger.warning(f"Errors: {e1}, {e2}, {e3}, {e4}")
+                logger.warning("Agent functionality disabled. Tools will be called manually.")
+                AgentExecutor = None
+                create_openai_tools_agent = None
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage
