@@ -147,15 +147,22 @@ Always be helpful, accurate, and concise."""
             memory_analysis["all_memories"]
         )
         
-        # Step 2: Determine if search is needed
+        # Step 2: Check if question is about GitHub repositories - use GitHub tool directly
+        question_lower = question.lower()
+        is_github_question = any(keyword in question_lower for keyword in [
+            "github repo", "github repository", "my repos", "my repositories", 
+            "check repos", "list repos", "what repos", "github repos"
+        ])
+        
+        # Step 3: Determine if search is needed (but not for GitHub questions)
         search_needed = False
         search_query = None
-        if hasattr(self, 'search_decision_maker'):
+        if not is_github_question and hasattr(self, 'search_decision_maker'):
             search_needed, search_query = self.search_decision_maker.should_search(
                 question, memory_context
             )
         
-        # Step 3: Build context for LLM
+        # Step 4: Build context for LLM
         context_parts = []
         
         if memory_context:
@@ -163,9 +170,85 @@ Always be helpful, accurate, and concise."""
         
         full_context = "\n\n".join(context_parts)
         
-        # Step 4: Generate response using agent or direct LLM call
-        # If search is needed, always perform it directly first (more reliable than relying on agent)
-        if search_needed and search_query:
+        # Step 5: Generate response using agent or direct LLM call
+        # Priority: GitHub tool > Search > Agent > Direct LLM
+        if is_github_question and hasattr(self, 'github_tool'):
+            # Use GitHub tool directly for repository questions
+            logger.info("Question is about GitHub repositories - using GitHub tool")
+            try:
+                # Extract GitHub username from memory if available
+                github_username = None
+                if memory_context:
+                    import re
+                    # Try to find GitHub username in memories - check multiple patterns
+                    patterns = [
+                        r"github[_\s]?username[:\s]+([a-zA-Z0-9_-]+)",
+                        r"username[:\s]+([a-zA-Z0-9_-]+).*github",
+                        r"@([a-zA-Z0-9_-]+).*github",
+                        r"Owen-Liuyuxuan",  # Known username from previous interactions
+                        r"user[_\s]?github[_\s]?username[:\s]+([a-zA-Z0-9_-]+)",
+                        r"([a-zA-Z0-9_-]+).*is.*github.*username",
+                    ]
+                    for pattern in patterns:
+                        match = re.search(pattern, memory_context, re.IGNORECASE)
+                        if match:
+                            github_username = match.group(1) if match.groups() else "Owen-Liuyuxuan"
+                            logger.debug(f"Extracted GitHub username from memory: {github_username}")
+                            break
+                    
+                    # Also check memory analysis results directly
+                    if not github_username:
+                        for memory in memory_analysis.get("all_memories", []):
+                            content = str(memory.get("content", "")).lower()
+                            if "github" in content and "username" in content:
+                                # Try to extract username from memory content
+                                for pattern in patterns:
+                                    match = re.search(pattern, content, re.IGNORECASE)
+                                    if match:
+                                        github_username = match.group(1) if match.groups() else "Owen-Liuyuxuan"
+                                        logger.debug(f"Extracted GitHub username from memory content: {github_username}")
+                                        break
+                                if github_username:
+                                    break
+                
+                # Use GitHub tool to list repositories
+                if github_username:
+                    logger.info(f"Using GitHub username from memory: {github_username}")
+                    # Try to get repos for the user
+                    github_result = self.github_tool._run(
+                        operation="list_repos",
+                        repository=None
+                    )
+                    answer = f"Based on your GitHub account ({github_username}), here are your repositories:\n\n{github_result}"
+                else:
+                    # Use GitHub tool without specific username
+                    github_result = self.github_tool._run(
+                        operation="list_repos",
+                        repository=None
+                    )
+                    answer = f"Here are your GitHub repositories:\n\n{github_result}"
+            except Exception as e:
+                logger.error(f"Error using GitHub tool: {e}")
+                # Fallback to agent or direct LLM call
+                if self.agent_graph:
+                    try:
+                        from langchain_core.messages import HumanMessage
+                        prompt = f"{full_context}\n\nQuestion: {question}\n\nUse the GitHub tool to list repositories."
+                        response = self.agent_graph.invoke({"messages": [HumanMessage(content=prompt)]})
+                        if isinstance(response, dict) and "messages" in response:
+                            messages = response["messages"]
+                            if messages:
+                                answer = messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1])
+                            else:
+                                answer = self._direct_llm_call(question, full_context)
+                        else:
+                            answer = str(response)
+                    except Exception as e2:
+                        logger.error(f"Agent error: {e2}")
+                        answer = self._direct_llm_call(question, full_context)
+                else:
+                    answer = self._direct_llm_call(question, full_context)
+        elif search_needed and search_query:
             logger.info(f"Performing search: {search_query}")
             search_results = self.search_tool._run(search_query)
             

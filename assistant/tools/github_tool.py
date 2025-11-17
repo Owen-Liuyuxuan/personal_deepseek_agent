@@ -32,12 +32,21 @@ class GitHubTool(BaseTool):
     """GitHub operations tool for LangChain."""
     
     name: str = "github_operations"
-    description: str = """Perform GitHub operations. Available operations:
-    - list_repos: List all repositories accessible to the user
+    description: str = """Perform GitHub operations for the user's repositories. 
+    
+    IMPORTANT: Use this tool when the user asks about:
+    - Their GitHub repositories (list, check, what repos they have)
+    - Repository information, issues, or file content
+    - Any GitHub-related questions about their account
+    
+    Available operations:
+    - list_repos: List all repositories accessible to the user (use this for "what repos do I have" questions)
     - get_repo_info: Get information about a specific repository
     - create_issue: Create an issue in a repository
     - list_issues: List issues in a repository
     - get_file_content: Get content of a file from a repository
+    
+    DO NOT use web search for GitHub repository questions - use this tool instead.
     """
     args_schema: type[BaseModel] = GitHubOperationInput
     

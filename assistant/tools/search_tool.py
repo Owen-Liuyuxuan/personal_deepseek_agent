@@ -110,16 +110,45 @@ class SearchDecisionMaker:
         Returns:
             Tuple of (should_search: bool, search_query: Optional[str])
         """
+        # Check if question is about GitHub repositories - should use GitHub tool, not search
+        question_lower = question.lower()
+        if any(keyword in question_lower for keyword in ["github repo", "github repository", "my repos", "my repositories", "check repos", "list repos"]):
+            logger.debug("Question is about GitHub repositories - should use GitHub tool, not search")
+            return False, None
+        
+        # Check if context contains the answer (e.g., GitHub username in memory)
+        if context:
+            # Extract GitHub username from context if present
+            if "github" in question_lower and "username" in context.lower():
+                # Try to find GitHub username in context
+                import re
+                github_patterns = [
+                    r"github[_\s]?username[:\s]+([a-zA-Z0-9_-]+)",
+                    r"username[:\s]+([a-zA-Z0-9_-]+).*github",
+                    r"@([a-zA-Z0-9_-]+).*github",
+                ]
+                for pattern in github_patterns:
+                    match = re.search(pattern, context, re.IGNORECASE)
+                    if match:
+                        logger.debug(f"Found GitHub username in memory: {match.group(1)} - no search needed")
+                        return False, None
+        
         prompt = f"""Analyze the following question and determine if a web search is needed to answer it accurately.
 
 Question: {question}
-{f'Context: {context}' if context else ''}
+{f'Context (including user memories): {context}' if context else ''}
+
+IMPORTANT: 
+- If the question is about GitHub repositories, DO NOT search - use the GitHub tool instead
+- If the context/memories contain the information needed (e.g., GitHub username), DO NOT search
+- Only search if the question requires CURRENT information not in the context
 
 Consider:
 1. Does it require CURRENT information (news, weather, current events, recent developments)?
 2. Does it ask for SPECIFIC FACTS that might not be in the knowledge base?
 3. Does it require REAL-TIME data (stock prices, sports scores, etc.)?
 4. Can it be answered with general knowledge or existing context?
+5. Is the information already in the provided context/memories?
 
 Respond with JSON:
 {{
@@ -143,6 +172,18 @@ Respond with JSON:
             result = json.loads(response.strip())
             search_needed = result.get("search_needed", False)
             search_query = result.get("search_query") if search_needed else None
+            
+            # If search is needed and we have context with user info, enhance the query
+            if search_needed and search_query and context:
+                # Extract user-specific information from context to improve search
+                import re
+                # Look for GitHub username
+                github_match = re.search(r"github[_\s]?username[:\s]+([a-zA-Z0-9_-]+)", context, re.IGNORECASE)
+                if github_match and "github" in search_query.lower():
+                    github_username = github_match.group(1)
+                    # Use the known username instead of searching generically
+                    search_query = search_query.replace("Yuxuan Liu", github_username).replace("yuxuan liu", github_username)
+                    logger.debug(f"Enhanced search query with known GitHub username: {search_query}")
             
             logger.info(f"Search decision: {search_needed}, query: {search_query}")
             return search_needed, search_query
