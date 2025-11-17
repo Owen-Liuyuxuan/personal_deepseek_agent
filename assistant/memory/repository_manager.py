@@ -222,7 +222,8 @@ class MemoryRepositoryManager:
             f for f in memory_files
             if ".git" not in str(f) and f.is_file()
         ]
-        
+        # Filter out duplicated memory files
+        memory_files = list(set(memory_files))
         return memory_files
     
     def load_memories(self) -> List[Dict[str, Any]]:

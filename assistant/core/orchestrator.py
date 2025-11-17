@@ -132,6 +132,15 @@ Use the available tools to answer questions accurately:
 
 Always be helpful, accurate, and concise."""
             
+            # Log system prompt and tools for debugging
+            logger.info(f"Initializing agent with {len(self.tools)} tool(s)")
+            logger.debug(f"System prompt length: {len(system_prompt)} characters")
+            logger.debug(f"System prompt preview: {system_prompt[:200]}...")
+            for i, tool in enumerate(self.tools, 1):
+                tool_name = getattr(tool, 'name', 'unknown')
+                tool_desc = getattr(tool, 'description', 'no description')[:100]
+                logger.info(f"  Tool {i}: {tool_name} - {tool_desc}...")
+            
             self.agent_graph = create_agent(
                 model=llm,
                 tools=self.tools,
@@ -158,12 +167,21 @@ Always be helpful, accurate, and concise."""
             Dictionary with response and metadata
         """
         logger.info(f"Processing question from {user}: {question[:100]}")
+        logger.debug(f"Full question: {question}")
         
         # Step 1: Analyze question and load relevant memories
+        logger.debug("Step 1: Analyzing question and loading memories...")
         memory_analysis = self.memory_analyzer.analyze_question(question, user)
+        logger.debug(f"Memory analysis returned {len(memory_analysis.get('all_memories', []))} memories")
+        
         memory_context = self.memory_analyzer.format_memories_for_context(
             memory_analysis["all_memories"]
         )
+        logger.debug(f"Memory context length: {len(memory_context) if memory_context else 0} characters")
+        if memory_context:
+            logger.debug(f"Memory context preview: {memory_context[:300]}...")
+        else:
+            logger.debug("No memory context found")
         
         # Step 2: Check if question is about GitHub repositories - use GitHub tool directly
         question_lower = question.lower()
@@ -187,6 +205,8 @@ Always be helpful, accurate, and concise."""
             context_parts.append(f"**Relevant Memories:**\n{memory_context}")
         
         full_context = "\n\n".join(context_parts)
+        logger.info(f"Built context for LLM (length: {len(full_context)} chars)")
+        logger.debug(f"Full context being passed: {full_context[:500]}...")
         
         # Step 5: Generate response using agent or direct LLM call
         # Priority: GitHub tool > Search > Agent > Direct LLM
@@ -269,9 +289,12 @@ Always be helpful, accurate, and concise."""
         elif search_needed and search_query:
             logger.info(f"Performing search: {search_query}")
             search_results = self.search_tool._run(search_query)
+            logger.info(f"Search returned results length: {len(search_results)} chars")
+            logger.debug(f"Search results preview: {search_results[:300]}...")
             
             if self.agent_graph:
                 # Try agent with search results in context
+                logger.info("Using agent graph with search results")
                 try:
                     # LangChain 1.0+ agent graph uses different invoke format
                     # The graph expects messages, not a single input string
@@ -288,10 +311,17 @@ Question: {question}
 
 Provide a comprehensive answer based on the search results above."""
                     
+                    logger.info(f"Invoking agent with search results, prompt length: {len(prompt)} chars")
+                    logger.debug(f"Agent prompt with search preview: {prompt[:500]}...")
+                    logger.info(f"Agent has access to {len(self.tools)} tool(s): {[getattr(t, 'name', 'unknown') for t in self.tools]}")
+                    
                     # LangChain 1.0+ agent graph expects input dict with messages
                     response = self.agent_graph.invoke({
                         "messages": [HumanMessage(content=prompt)]
                     })
+                    
+                    logger.info(f"Agent response type (with search): {type(response)}")
+                    logger.debug(f"Agent response (with search): {str(response)[:500]}...")
                     
                     # Extract answer from response (format may vary)
                     if isinstance(response, dict):
@@ -331,33 +361,61 @@ Provide a comprehensive answer based on the search results above."""
                 )
         elif self.agent_graph:
             # Use agent without search
+            logger.info("Using agent graph (no search needed)")
             try:
                 from langchain_core.messages import HumanMessage
                 
                 # LangChain 1.0+ agent graph expects input dict with messages
                 prompt = f"{full_context}\n\nQuestion: {question}"
+                logger.info(f"Invoking agent with prompt length: {len(prompt)} chars")
+                logger.debug(f"Agent prompt preview: {prompt[:500]}...")
+                logger.info(f"Agent has access to {len(self.tools)} tool(s): {[getattr(t, 'name', 'unknown') for t in self.tools]}")
+                
                 response = self.agent_graph.invoke({
                     "messages": [HumanMessage(content=prompt)]
                 })
                 
+                logger.info(f"Agent response type: {type(response)}")
+                logger.debug(f"Agent response: {str(response)[:500]}...")
+                
                 # Extract answer from response
                 if isinstance(response, dict):
+                    logger.debug(f"Agent response keys: {list(response.keys())}")
                     if "messages" in response:
                         messages = response["messages"]
+                        logger.info(f"Agent returned {len(messages)} message(s)")
                         if messages:
+                            # Log all messages for debugging
+                            for i, msg in enumerate(messages):
+                                msg_type = type(msg).__name__
+                                if hasattr(msg, 'content'):
+                                    content_preview = str(msg.content)[:200] if msg.content else "None"
+                                    logger.debug(f"  Message {i} ({msg_type}): {content_preview}...")
+                                else:
+                                    logger.debug(f"  Message {i} ({msg_type}): {str(msg)[:200]}...")
+                            
                             answer = messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1])
+                            logger.info(f"Extracted answer length: {len(answer)} chars")
+                            logger.debug(f"Answer preview: {answer[:300]}...")
+                            logger.debug(f"Full answer: {answer}")
                         else:
                             answer = ""
+                            logger.warning("Agent returned empty messages list")
                     elif "output" in response:
                         answer = response["output"]
+                        logger.info(f"Extracted answer from 'output' key, length: {len(answer)} chars")
                     else:
                         answer = str(response)
+                        logger.warning(f"Unexpected response format, using str conversion")
+                        logger.debug(f"Full response: {response}")
                 else:
                     answer = str(response)
+                    logger.info(f"Non-dict response, converted to string, length: {len(answer)} chars")
+                    logger.debug(f"Full response: {response}")
                 
                 # If agent gave generic response, use direct LLM call instead
                 if not answer or len(answer) < 50 or "how can i help" in answer.lower():
-                    logger.info("Agent gave generic response, using direct LLM call")
+                    logger.info(f"Agent gave generic response (length: {len(answer)}, content: '{answer[:50]}'), using direct LLM call")
                     answer = self._direct_llm_call(question, full_context)
             except Exception as e:
                 logger.error(f"Agent execution error: {e}")
@@ -381,6 +439,10 @@ Provide a comprehensive answer based on the search results above."""
             self._delete_memories(memory_analysis["memories_to_delete"])
         
         # Step 6: Prepare response
+        logger.info(f"Final answer prepared, length: {len(answer)} chars")
+        logger.debug(f"Final answer preview: {answer[:300]}...")
+        logger.info(f"Response metadata - memories_used: {len(memory_analysis['all_memories'])}, search_used: {search_needed}, github_used: {is_github_question if 'is_github_question' in locals() else False}")
+        
         result = {
             "answer": answer,
             "memories_used": len(memory_analysis["all_memories"]),
@@ -394,7 +456,31 @@ Provide a comprehensive answer based on the search results above."""
     
     def _direct_llm_call(self, question: str, context: str) -> str:
         """Make a direct LLM call without agent."""
-        system_prompt = """You are a helpful personal assistant. Use the provided context to answer questions accurately and comprehensively.
+        logger.info("Making direct LLM call (bypassing agent)")
+        logger.debug(f"Direct LLM call - question: {question[:100]}...")
+        logger.debug(f"Direct LLM call - context length: {len(context)} chars")
+        logger.debug(f"Direct LLM call - context preview: {context[:300]}...")
+        
+        # Build tool information for system prompt
+        tool_info = []
+        tool_info.append("1. Personal Memory Repository: Stores and retrieves past interactions, preferences, and information about the user")
+        for tool in self.tools:
+            if hasattr(tool, 'name') and hasattr(tool, 'description'):
+                tool_name = tool.name.replace('_', ' ').title()
+                tool_info.append(f"{len(tool_info) + 1}. {tool_name}: {tool.description}")
+        
+        tools_list = "\n".join(tool_info)
+        
+        system_prompt = f"""You are a helpful personal assistant with access to the following tools and capabilities:
+
+{tools_list}
+
+You have access to these tools through the LangChain agent framework. When users ask about your capabilities, tools, or what you can do, you should:
+- List all available tools and their purposes
+- Explain how you use each tool
+- Be specific about what operations you can perform
+
+Use the provided context to answer questions accurately and comprehensively.
 
 When search results are provided, prioritize that information as it contains the most current data. Combine search results with memories when relevant.
 
@@ -407,7 +493,14 @@ Provide clear, direct answers based on the available information."""
             {"role": "user", "content": user_prompt}
         ]
         
-        return self.llm_manager.invoke(messages)
+        logger.debug(f"Direct LLM call - system prompt length: {len(system_prompt)} chars")
+        logger.debug(f"Direct LLM call - system prompt includes {len(self.tools)} tool(s)")
+        logger.debug(f"Direct LLM call - user prompt length: {len(user_prompt)} chars")
+        
+        result = self.llm_manager.invoke(messages)
+        logger.info(f"Direct LLM call returned answer length: {len(result)} chars")
+        logger.debug(f"Direct LLM answer preview: {result[:300]}...")
+        return result
     
     def _create_memory(self, content: str, user: str, question: str) -> None:
         """Create a new memory."""
