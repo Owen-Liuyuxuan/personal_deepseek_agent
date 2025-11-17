@@ -13,6 +13,7 @@ import os
 import sys
 import json
 import logging
+import requests
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
@@ -27,6 +28,58 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> bool:
+    """
+    Send a message to Feishu using webhook.
+    
+    Args:
+        webhook_url: The Feishu webhook URL
+        title: Message title
+        timestamp: Message timestamp
+        text: Message text content
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    if not webhook_url:
+        logger.warning("FEISHU_WEBHOOK_URL not set, skipping Feishu notification")
+        return False
+    
+    # Format the message for better readability in Feishu
+    formatted_message = f"**{title}**\n\n**Timestamp:** {timestamp}\n\n**Content:**\n{text}"
+    
+    payload = {
+        "msg_type": "text",
+        "content": {
+            "text": formatted_message
+        }
+    }
+    
+    try:
+        response = requests.post(
+            webhook_url,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("code") == 0:
+                logger.info("Successfully sent message to Feishu")
+                return True
+            else:
+                logger.warning(f"Feishu API returned error: {result.get('msg', 'Unknown error')}")
+                return False
+        else:
+            logger.warning(f"HTTP request failed with status {response.status_code}: {response.text}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Error sending request to Feishu: {e}")
+        return False
 
 
 class MemoryMaintainer:
@@ -378,7 +431,7 @@ Provide a comprehensive, integrated summary that:
         else:
             logger.info("No simple talks to integrate")
         
-        return {
+        results = {
             "status": "success",
             "total_memories": len(all_memories),
             "solid_instructions": len(solid_instructions),
@@ -386,6 +439,10 @@ Provide a comprehensive, integrated summary that:
             "deleted_files": len(set(memory.get("_file_path", "") for memory in simple_talks if memory.get("_file_path"))),
             "dynamic_memory_updated": len(simple_talks) > 0
         }
+        
+        # Store results for Feishu notification
+        self._last_results = results
+        return results
 
 
 def main():
@@ -422,8 +479,41 @@ def main():
         
         print(json.dumps(results, indent=2))
         
+        # Send notification to Feishu
+        webhook_url = config.feishu_webhook_url
+        if webhook_url:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Format results for Feishu
+            if results["total_memories"] == 0:
+                text_content = "No memories found to maintain."
+            else:
+                text_content = f"""Memory maintenance completed successfully!
+
+**Summary:**
+- Total memories processed: {results['total_memories']}
+- Solid instructions preserved: {results['solid_instructions']}
+- Simple talks integrated: {results['simple_talks']}
+- Files deleted: {results['deleted_files']}
+- Dynamic memory updated: {'Yes' if results['dynamic_memory_updated'] else 'No'}
+
+**Status:** {results['status']}"""
+            
+            title = "Memory Maintenance Report"
+            send_to_feishu(webhook_url, title, timestamp, text_content)
+        else:
+            logger.info("FEISHU_WEBHOOK_URL not set, skipping Feishu notification")
+        
     except Exception as e:
         logger.error(f"Memory maintenance failed: {e}", exc_info=True)
+        
+        # Send error notification to Feishu
+        webhook_url = config.feishu_webhook_url
+        if webhook_url:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            error_text = f"Memory maintenance failed with error:\n\n{str(e)}"
+            send_to_feishu(webhook_url, "Memory Maintenance Error", timestamp, error_text)
+        
         sys.exit(1)
 
 

@@ -39,6 +39,9 @@ jobs:
           GIT_TERMINAL_PROMPT: 0
           GIT_ASKPASS: echo
           
+          # Feishu Configuration
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          
           # GitHub Configuration
           GH_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
