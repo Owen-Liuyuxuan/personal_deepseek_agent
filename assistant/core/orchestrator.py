@@ -104,30 +104,31 @@ class PersonalAssistantOrchestrator:
             llm_type = type(llm).__name__
             logger.debug(f"Attempting to create agent with LLM type: {llm_type}")
             
-            # Build tool descriptions for system prompt
+            # Build comprehensive system prompt with all available tools
             tool_descriptions = []
-            tool_descriptions.append("- Personal Memory Repository: Stores and retrieves past interactions, preferences, and information about the user")
+            tool_descriptions.append("1. Personal Memory Repository: Stores and retrieves past interactions, preferences, and information about the user")
             
             for tool in self.tools:
                 if hasattr(tool, 'name') and hasattr(tool, 'description'):
-                    tool_descriptions.append(f"- {tool.name}: {tool.description}")
+                    tool_name = tool.name.replace('_', ' ').title()
+                    tool_descriptions.append(f"{len(tool_descriptions) + 1}. {tool_name}: {tool.description}")
             
             tools_list = "\n".join(tool_descriptions)
             
             # Create agent using LangChain 1.0+ API
-            system_prompt = f"""You are a helpful personal assistant with access to the following capabilities:
+            system_prompt = f"""You are a helpful personal assistant with access to the following tools and capabilities:
 
 {tools_list}
 
-IMPORTANT: When users ask about your capabilities, tools, or what you can do, you should:
-1. List all available tools and their purposes
-2. Explain how you use each tool
-3. Be specific about what operations you can perform
+You have access to these tools through the LangChain agent framework. When users ask about your capabilities, tools, or what you can do, you should:
+- List all available tools and their purposes
+- Explain how you use each tool
+- Be specific about what operations you can perform
 
-Available Tools:
-{self._get_tools_summary()}
-
-Use the available tools to answer questions accurately. When you have relevant memories, use them. When you need current information, use search. When asked about GitHub repositories, use the GitHub tool.
+Use the available tools to answer questions accurately:
+- When you have relevant memories, use them
+- When you need current information, use search
+- When asked about GitHub repositories, use the GitHub tool
 
 Always be helpful, accurate, and concise."""
             
@@ -144,29 +145,6 @@ Always be helpful, accurate, and concise."""
             logger.info("Falling back to LLM-only mode (tools will be called manually)")
             self.agent_graph = None
     
-    def _get_tools_summary(self) -> str:
-        """Get a summary of available tools for the system prompt."""
-        summaries = []
-        
-        # Always include memory
-        summaries.append("1. Personal Memory Repository: Access to stored memories about the user, past interactions, and preferences")
-        
-        # Add tool-specific summaries
-        tool_num = 2
-        for tool in self.tools:
-            if hasattr(tool, 'name'):
-                tool_name = tool.name
-                if tool_name == "google_search":
-                    summaries.append(f"{tool_num}. Google Search Tool: Search the web for current information, news, facts, or recent developments")
-                elif tool_name == "github_operations":
-                    summaries.append(f"{tool_num}. GitHub Operations Tool: Perform GitHub operations including listing repositories, getting repo info, creating issues, listing issues, and getting file content")
-                else:
-                    desc = getattr(tool, 'description', 'Available tool')
-                    summaries.append(f"{tool_num}. {tool_name}: {desc}")
-                tool_num += 1
-        
-        return "\n".join(summaries)
-    
     def process_question(self, question: str, user: str, time: str) -> Dict[str, Any]:
         """
         Process a question and return a response.
@@ -180,35 +158,6 @@ Always be helpful, accurate, and concise."""
             Dictionary with response and metadata
         """
         logger.info(f"Processing question from {user}: {question[:100]}")
-        
-        # Step 0: Check if question is about capabilities/tools - provide direct answer
-        question_lower = question.lower()
-        is_capability_question = any(phrase in question_lower for phrase in [
-            "what tools", "what can you", "what are your", "what capabilities",
-            "what do you", "what are you able", "list your tools", "available tools",
-            "what functions", "what features", "what abilities"
-        ])
-        
-        if is_capability_question:
-            logger.info("Question is about capabilities - providing direct answer")
-            tools_info = self._get_tools_summary()
-            answer = f"""I am a personal assistant with access to the following capabilities:
-
-{tools_info}
-
-I can automatically determine which tools to use based on your questions:
-- For questions about your GitHub repositories, I use the GitHub Operations Tool
-- For questions requiring current information or recent developments, I use Google Search
-- For questions about past interactions or preferences, I access the Personal Memory Repository
-- I can combine multiple tools when needed to provide comprehensive answers
-
-Is there something specific you'd like me to help you with?"""
-            return {
-                "answer": answer,
-                "memories_used": [],
-                "search_used": False,
-                "github_used": False
-            }
         
         # Step 1: Analyze question and load relevant memories
         memory_analysis = self.memory_analyzer.analyze_question(question, user)
