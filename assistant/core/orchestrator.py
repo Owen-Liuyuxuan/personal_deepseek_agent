@@ -120,17 +120,20 @@ class PersonalAssistantOrchestrator:
 
 {tools_list}
 
-You have access to these tools through the LangChain agent framework. When users ask about your capabilities, tools, or what you can do, you should:
-- List all available tools and their purposes
-- Explain how you use each tool
-- Be specific about what operations you can perform
+You have access to these tools through the LangChain agent framework. The tools will be automatically invoked when you need them - you don't need to describe using them, just use them directly.
+
+IMPORTANT: 
+- When you need current information or to search the web, automatically use the google_search tool
+- When asked about GitHub repositories or operations, automatically use the github_operations tool
+- When users ask about your capabilities, list the tools and their purposes
+- Use tools automatically when needed - don't describe what you will do, just do it
 
 Use the available tools to answer questions accurately:
-- When you have relevant memories, use them
-- When you need current information, use search
-- When asked about GitHub repositories, use the GitHub tool
+- When you have relevant memories in the context, use them
+- When you need current information, automatically invoke the search tool
+- When asked about GitHub repositories, automatically invoke the GitHub tool
 
-Always be helpful, accurate, and concise."""
+Always be helpful, accurate, and concise. Use tools automatically when needed."""
             
             # Log system prompt and tools for debugging
             logger.info(f"Initializing agent with {len(self.tools)} tool(s)")
@@ -190,15 +193,7 @@ Always be helpful, accurate, and concise."""
             "check repos", "list repos", "what repos", "github repos"
         ])
         
-        # Step 3: Determine if search is needed (but not for GitHub questions)
-        search_needed = False
-        search_query = None
-        if not is_github_question and hasattr(self, 'search_decision_maker'):
-            search_needed, search_query = self.search_decision_maker.should_search(
-                question, memory_context
-            )
-        
-        # Step 4: Build context for LLM
+        # Step 3: Build context for LLM
         context_parts = []
         
         if memory_context:
@@ -208,8 +203,9 @@ Always be helpful, accurate, and concise."""
         logger.info(f"Built context for LLM (length: {len(full_context)} chars)")
         logger.debug(f"Full context being passed: {full_context[:500]}...")
         
-        # Step 5: Generate response using agent or direct LLM call
-        # Priority: GitHub tool > Search > Agent > Direct LLM
+        # Step 4: Generate response using agent or direct LLM call
+        # Priority: GitHub tool (direct) > Agent (automatic tool usage) > Direct LLM
+        # Let the agent automatically decide when to use tools (search, GitHub, etc.)
         if is_github_question and hasattr(self, 'github_tool'):
             # Use GitHub tool directly for repository questions
             logger.info("Question is about GitHub repositories - using GitHub tool")
@@ -286,91 +282,26 @@ Always be helpful, accurate, and concise."""
                         answer = self._direct_llm_call(question, full_context)
                 else:
                     answer = self._direct_llm_call(question, full_context)
-        elif search_needed and search_query:
-            logger.info(f"Performing search: {search_query}")
-            search_results = self.search_tool._run(search_query)
-            logger.info(f"Search returned results length: {len(search_results)} chars")
-            logger.debug(f"Search results preview: {search_results[:300]}...")
-            
-            if self.agent_graph:
-                # Try agent with search results in context
-                logger.info("Using agent graph with search results")
-                try:
-                    # LangChain 1.0+ agent graph uses different invoke format
-                    # The graph expects messages, not a single input string
-                    from langchain_core.messages import HumanMessage
-                    
-                    prompt = f"""You are a helpful personal assistant. Answer the question using the search results and context provided.
-
-{full_context}
-
-**Search Results:**
-{search_results}
-
-Question: {question}
-
-Provide a comprehensive answer based on the search results above."""
-                    
-                    logger.info(f"Invoking agent with search results, prompt length: {len(prompt)} chars")
-                    logger.debug(f"Agent prompt with search preview: {prompt[:500]}...")
-                    logger.info(f"Agent has access to {len(self.tools)} tool(s): {[getattr(t, 'name', 'unknown') for t in self.tools]}")
-                    
-                    # LangChain 1.0+ agent graph expects input dict with messages
-                    response = self.agent_graph.invoke({
-                        "messages": [HumanMessage(content=prompt)]
-                    })
-                    
-                    logger.info(f"Agent response type (with search): {type(response)}")
-                    logger.debug(f"Agent response (with search): {str(response)[:500]}...")
-                    
-                    # Extract answer from response (format may vary)
-                    if isinstance(response, dict):
-                        # Check common response formats
-                        if "messages" in response:
-                            # Get last message content
-                            messages = response["messages"]
-                            if messages:
-                                answer = messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1])
-                            else:
-                                answer = ""
-                        elif "output" in response:
-                            answer = response["output"]
-                        else:
-                            answer = str(response)
-                    else:
-                        answer = str(response)
-                    
-                    # If agent gave generic response, use direct LLM call instead
-                    if not answer or len(answer) < 50 or "how can i help" in answer.lower():
-                        logger.info("Agent gave generic response, using direct LLM call with search results")
-                        answer = self._direct_llm_call(
-                            question, 
-                            f"{full_context}\n\n**Search Results:**\n{search_results}"
-                        )
-                except Exception as e:
-                    logger.error(f"Agent execution error: {e}, using direct LLM call")
-                    answer = self._direct_llm_call(
-                        question, 
-                        f"{full_context}\n\n**Search Results:**\n{search_results}"
-                    )
-            else:
-                # Direct LLM call with search results
-                answer = self._direct_llm_call(
-                    question, 
-                    f"{full_context}\n\n**Search Results:**\n{search_results}"
-                )
         elif self.agent_graph:
-            # Use agent without search
-            logger.info("Using agent graph (no search needed)")
+            # Use agent - let it automatically decide when to use tools
+            logger.info("Using agent graph - agent will automatically decide tool usage")
             try:
                 from langchain_core.messages import HumanMessage
                 
-                # LangChain 1.0+ agent graph expects input dict with messages
-                prompt = f"{full_context}\n\nQuestion: {question}"
+                # Build prompt with context and question
+                # The agent will automatically invoke tools (search, GitHub) when needed
+                if full_context:
+                    prompt = f"{full_context}\n\nQuestion: {question}"
+                else:
+                    prompt = question
+                
                 logger.info(f"Invoking agent with prompt length: {len(prompt)} chars")
                 logger.debug(f"Agent prompt preview: {prompt[:500]}...")
                 logger.info(f"Agent has access to {len(self.tools)} tool(s): {[getattr(t, 'name', 'unknown') for t in self.tools]}")
+                logger.info("Agent will automatically invoke tools if needed (search, GitHub, etc.)")
                 
+                # LangChain 1.0+ agent graph expects input dict with messages
+                # The agent will automatically call tools when it determines they're needed
                 response = self.agent_graph.invoke({
                     "messages": [HumanMessage(content=prompt)]
                 })
@@ -414,8 +345,20 @@ Provide a comprehensive answer based on the search results above."""
                     logger.debug(f"Full response: {response}")
                 
                 # If agent gave generic response, use direct LLM call instead
-                if not answer or len(answer) < 50 or "how can i help" in answer.lower():
-                    logger.info(f"Agent gave generic response (length: {len(answer)}, content: '{answer[:50]}'), using direct LLM call")
+                answer_lower = answer.lower() if answer else ""
+                is_generic = (
+                    not answer or 
+                    len(answer) < 50 or 
+                    "how can i help" in answer_lower or
+                    "let's search" in answer_lower or
+                    "i will use" in answer_lower or
+                    "i need to search" in answer_lower or
+                    "tool call" in answer_lower or
+                    answer_lower.startswith("i can help")
+                )
+                
+                if is_generic:
+                    logger.info(f"Agent gave generic response (length: {len(answer)}, content: '{answer[:100]}'), using direct LLM call")
                     answer = self._direct_llm_call(question, full_context)
             except Exception as e:
                 logger.error(f"Agent execution error: {e}")
@@ -441,12 +384,21 @@ Provide a comprehensive answer based on the search results above."""
         # Step 6: Prepare response
         logger.info(f"Final answer prepared, length: {len(answer)} chars")
         logger.debug(f"Final answer preview: {answer[:300]}...")
-        logger.info(f"Response metadata - memories_used: {len(memory_analysis['all_memories'])}, search_used: {search_needed}, github_used: {is_github_question if 'is_github_question' in locals() else False}")
+        
+        # Detect if search was used (agent automatically invokes tools, so we can't directly track it)
+        # We'll infer from the answer content or assume agent used tools if available
+        search_used = False
+        if self.agent_graph and self.tools:
+            # Agent has tools available - it may have used search automatically
+            # We can't directly detect this without execution trace, so we'll mark as potentially used
+            search_used = any("search" in tool.name.lower() for tool in self.tools)
+        
+        logger.info(f"Response metadata - memories_used: {len(memory_analysis['all_memories'])}, search_used: {search_used}, github_used: {is_github_question if 'is_github_question' in locals() else False}")
         
         result = {
             "answer": answer,
             "memories_used": len(memory_analysis["all_memories"]),
-            "search_used": search_needed,
+            "search_used": search_used,
             "timestamp": datetime.now().isoformat(),
             "user": user,
             "question": question
@@ -482,11 +434,13 @@ You have access to these tools through the LangChain agent framework. When users
 
 Use the provided context to answer questions accurately and comprehensively.
 
+CRITICAL: When search results are provided in the context, they have ALREADY been obtained. Use those search results directly to answer the question. Do NOT suggest searching again or mention that you need to search. The search has been done for you - just use the results to provide a comprehensive answer.
+
 When search results are provided, prioritize that information as it contains the most current data. Combine search results with memories when relevant.
 
-Provide clear, direct answers based on the available information."""
+Provide clear, direct answers based on the available information. If search results are provided, use them to answer the question immediately."""
         
-        user_prompt = f"{context}\n\nQuestion: {question}\n\nPlease provide a helpful, comprehensive answer based on the context above."
+        user_prompt = f"{context}\n\nQuestion: {question}\n\nIMPORTANT: If search results are provided above, they have already been obtained. Use them directly to answer the question. Do not suggest searching again.\n\nPlease provide a helpful, comprehensive answer based on the context above."
         
         messages = [
             {"role": "system", "content": system_prompt},
