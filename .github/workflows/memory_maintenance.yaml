@@ -1,0 +1,63 @@
+name: Memory Maintenance
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Set git config
+        uses: autowarefoundation/autoware-github-actions/set-git-config@v1
+        with:
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+
+      - name: Run Memory Maintenance
+        env:
+          # Git Configuration (disable prompts)
+          GIT_TERMINAL_PROMPT: 0
+          GIT_ASKPASS: echo
+          
+          # GitHub Configuration
+          GH_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+          
+          # LLM Configuration (set one of these based on your provider)
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # Memory Repository Configuration
+          MEMORY_REPO_URL: ${{ secrets.MEMORY_REPO_URL }}
+          MEMORY_REPO_TOKEN: ${{ secrets.MEMORY_REPO_TOKEN || secrets.PERSONAL_GITHUB_TOKEN }}
+          MEMORY_REPO_PATH: ./memory_repo
+          
+          # Model Configuration (optional, defaults provided in code)
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+        run: |
+          uv run python3 memory_maintenance.py
+

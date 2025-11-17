@@ -236,8 +236,31 @@ class MemoryRepositoryManager:
         memories = []
         memory_files = self.get_memory_files()
         
+        # Load dynamic memory file first if it exists
+        dynamic_memory_path = self.repo_path / "dynamic_memory.json"
+        if dynamic_memory_path.exists() and dynamic_memory_path not in memory_files:
+            try:
+                with open(dynamic_memory_path, "r", encoding="utf-8") as f:
+                    dynamic_data = json.load(f)
+                    if isinstance(dynamic_data, dict) and "integrated_info" in dynamic_data:
+                        # Add dynamic memory as a special memory
+                        memories.append({
+                            "content": dynamic_data.get("integrated_info", ""),
+                            "source": "dynamic_memory.json",
+                            "timestamp": dynamic_data.get("last_updated", ""),
+                            "file_type": "dynamic",
+                            "memory_type": "integrated"
+                        })
+                        logger.info("Loaded dynamic memory file")
+            except Exception as e:
+                logger.warning(f"Error loading dynamic memory: {e}")
+        
         for file_path in memory_files:
             try:
+                # Skip dynamic_memory.json as it's handled separately
+                if file_path.name == "dynamic_memory.json":
+                    continue
+                    
                 if file_path.suffix == ".json":
                     with open(file_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
