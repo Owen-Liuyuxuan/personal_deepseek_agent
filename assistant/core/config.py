@@ -46,7 +46,7 @@ class Config:
         
         # Assistant Configuration
         self.temperature = float(os.environ.get("TEMPERATURE", "0.1"))
-        self.max_tokens = int(os.environ.get("MAX_TOKENS", "5000"))
+        self.max_tokens = int(os.environ.get("MAX_TOKENS", "10000"))
         
         # Embedding Configuration
         self.embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "simple")  # auto, openai, gemini, simple
