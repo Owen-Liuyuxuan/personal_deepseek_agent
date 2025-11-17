@@ -45,18 +45,41 @@ class MemoryRepositoryManager:
     
     def _prepare_repo_url(self) -> None:
         """Prepare repository URL with authentication token if needed."""
-        if self.token and self.token not in self.repo_url:
-            # Insert token into URL
-            if self.repo_url.startswith("https://"):
-                # Format: https://token@github.com/user/repo.git
-                if "@" not in self.repo_url:
-                    # Remove https:// prefix
-                    url_without_prefix = self.repo_url.replace("https://", "")
-                    # Insert token
-                    self.repo_url = f"https://{self.token}@{url_without_prefix}"
-            elif self.repo_url.startswith("git@"):
-                # For SSH, token is not used directly
-                pass
+        if not self.token:
+            return
+        
+        # Check if URL already contains a token (common patterns: ghp_, github_pat_, or x-access-token)
+        if "@" in self.repo_url:
+            # Check if there's already a token-like pattern before @
+            parts = self.repo_url.split("@", 1)
+            if len(parts) == 2:
+                before_at = parts[0].lower()
+                # If it already looks like a token, don't modify
+                if any(pattern in before_at for pattern in ["ghp_", "github_pat_", "x-access-token", "oauth"]):
+                    logger.debug("URL already contains a token pattern, skipping token insertion")
+                    return
+                # If it's just a username, replace it with token
+                # Extract the part after @
+                url_after_at = parts[1]
+                # Remove https:// if present
+                if url_after_at.startswith("https://"):
+                    url_after_at = url_after_at.replace("https://", "")
+                self.repo_url = f"https://{self.token}@{url_after_at}"
+                logger.debug("Replaced existing username with token in URL")
+                return
+        
+        # Insert token into URL if it doesn't have one
+        if self.repo_url.startswith("https://"):
+            # GitHub requires the token to be used as the username
+            # Format: https://TOKEN@github.com/user/repo.git
+            # Remove https:// prefix
+            url_without_prefix = self.repo_url.replace("https://", "")
+            # Insert token as username (GitHub uses token as username, no password)
+            self.repo_url = f"https://{self.token}@{url_without_prefix}"
+            logger.debug("Token inserted into repository URL")
+        elif self.repo_url.startswith("git@"):
+            # For SSH, token is not used directly
+            pass
     
     def clone_or_update(self, force_clone: bool = False) -> bool:
         """
@@ -74,7 +97,10 @@ class MemoryRepositoryManager:
                 shutil.rmtree(self.repo_path)
             
             if not self.repo_path.exists():
-                logger.info(f"Cloning memory repository from {self._mask_url(self.repo_url)}")
+                # Log the masked URL for security
+                masked_url = self._mask_url(self.repo_url)
+                logger.info(f"Cloning memory repository from {masked_url}")
+                logger.debug(f"Full repo URL format: https://TOKEN@github.com/user/repo")
                 # Configure Git to avoid credential prompts in CI/CD
                 import subprocess
                 import os
@@ -102,8 +128,28 @@ class MemoryRepositoryManager:
                         os.environ[key] = env[key]
                 
                 try:
+                    # Log the actual URL format for debugging (masked)
+                    logger.debug(f"Attempting to clone with URL format: https://TOKEN@github.com/...")
                     self.repo = Repo.clone_from(self.repo_url, self.repo_path)
                     logger.info(f"Repository cloned successfully to {self.repo_path}")
+                except Exception as clone_error:
+                    # Log more details about the error
+                    error_msg = str(clone_error)
+                    logger.error(f"Failed to clone repository: {error_msg}")
+                    # Check if it's an authentication error
+                    if "Authentication failed" in error_msg or "Invalid username or token" in error_msg:
+                        logger.error("Git authentication failed. Please check:")
+                        logger.error("1. MEMORY_REPO_TOKEN is set correctly")
+                        logger.error("2. Token has 'repo' scope for private repositories")
+                        logger.error("3. URL format is correct: https://TOKEN@github.com/user/repo")
+                        # Try to provide helpful error message
+                        if self.token:
+                            token_preview = self.token[:10] + "..." if len(self.token) > 10 else "***"
+                            logger.error(f"Token preview: {token_preview} (length: {len(self.token)})")
+                            # Check if token looks valid
+                            if not (self.token.startswith("ghp_") or self.token.startswith("github_pat_") or len(self.token) > 20):
+                                logger.warning("Token format might be incorrect. GitHub tokens usually start with 'ghp_' or 'github_pat_'")
+                    raise
                 finally:
                     # Restore original environment
                     for key, value in original_env.items():

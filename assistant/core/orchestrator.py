@@ -8,14 +8,18 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
+
+# Import agent classes for LangChain 1.0+
 try:
     from langchain.agents import AgentExecutor, create_openai_tools_agent
-except ImportError:
+except ImportError as e:
     # Fallback for different LangChain versions
     try:
         from langchain.agents.agent import AgentExecutor
         from langchain.agents.openai_tools import create_openai_tools_agent
-    except ImportError:
+    except ImportError as e2:
+        logger.warning(f"Failed to import agent classes: {e}, {e2}")
         AgentExecutor = None
         create_openai_tools_agent = None
 
@@ -29,8 +33,6 @@ from assistant.memory.memory_store import MemoryStore
 from assistant.memory.memory_analyzer import MemoryAnalyzer
 from assistant.tools.search_tool import GoogleSearchTool, SearchDecisionMaker
 from assistant.tools.github_tool import GitHubTool
-
-logger = logging.getLogger(__name__)
 
 
 class PersonalAssistantOrchestrator:
@@ -98,8 +100,18 @@ class PersonalAssistantOrchestrator:
             return
         
         # Check if agent classes are available
-        if AgentExecutor is None or create_openai_tools_agent is None:
+        # Use try/except to handle case where variables might not be defined
+        try:
+            agent_executor_available = AgentExecutor is not None
+            create_agent_available = create_openai_tools_agent is not None
+        except NameError:
+            logger.warning("Agent classes not imported, using LLM-only mode")
+            self.agent_executor = None
+            return
+        
+        if not agent_executor_available or not create_agent_available:
             logger.warning("Agent classes not available, using LLM-only mode")
+            logger.debug(f"AgentExecutor available: {agent_executor_available}, create_openai_tools_agent available: {create_agent_available}")
             self.agent_executor = None
             return
         
@@ -123,8 +135,13 @@ Always be helpful, accurate, and concise."""),
             llm = self.llm_manager.get_llm()
             
             # Try to create agent with tools
-            # Note: Some LLM providers may not support tool calling
+            # Note: create_openai_tools_agent requires OpenAI-compatible tool calling
+            # Some LLM providers (like Gemini/Deepseek) may not support this
             try:
+                # Check if LLM supports tool calling
+                llm_type = type(llm).__name__
+                logger.debug(f"Attempting to create agent with LLM type: {llm_type}")
+                
                 agent = create_openai_tools_agent(llm, self.tools, prompt)
                 
                 # Create agent executor
@@ -135,10 +152,15 @@ Always be helpful, accurate, and concise."""),
                     handle_parsing_errors=True
                 )
                 
-                logger.info("Agent initialized successfully with tools")
+                logger.info(f"Agent initialized successfully with {len(self.tools)} tool(s)")
             except Exception as agent_error:
-                logger.warning(f"Could not create agent with tools: {agent_error}")
-                logger.info("Falling back to LLM-only mode (tools will be called manually)")
+                error_msg = str(agent_error)
+                logger.warning(f"Could not create agent with tools: {error_msg}")
+                # Check if it's a tool calling compatibility issue
+                if any(keyword in error_msg.lower() for keyword in ["tool", "function", "binding", "not support"]):
+                    logger.info("LLM may not support OpenAI-compatible tool calling. Tools will be called manually.")
+                else:
+                    logger.info("Falling back to LLM-only mode (tools will be called manually)")
                 self.agent_executor = None
             
         except Exception as e:
