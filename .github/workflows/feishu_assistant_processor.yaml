@@ -76,8 +76,11 @@ jobs:
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
           # Handle multi-line question by writing to a file
-          # Use printf to preserve newlines and special characters
-          printf '%s\n' "${{ inputs.question }}" > question.txt
+          # Use a here-document with quoted delimiter to prevent variable expansion
+          # and properly handle special characters, quotes, brackets, and URLs
+          cat > question.txt << 'EOF_QUESTION'
+          ${{ inputs.question }}
+          EOF_QUESTION
           uv run python3 main.py \
             --question-file question.txt \
             --user "${{ inputs.user }}" \
