@@ -40,7 +40,7 @@ jobs:
       - name: Set git config
         uses: autowarefoundation/autoware-github-actions/set-git-config@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
 
       - name: Run Feishu Assistant Processor
         env:
@@ -52,8 +52,8 @@ jobs:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           
           # GitHub Configuration
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           
           # LLM Configuration (set one of these based on your provider)
           LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
@@ -63,7 +63,7 @@ jobs:
           
           # Memory Repository Configuration
           MEMORY_REPO_URL: ${{ secrets.MEMORY_REPO_URL }}
-          MEMORY_REPO_TOKEN: ${{ secrets.MEMORY_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          MEMORY_REPO_TOKEN: ${{ secrets.MEMORY_REPO_TOKEN || secrets.PERSONAL_GITHUB_TOKEN }}
           MEMORY_REPO_PATH: ./memory_repo
           
           # Google Search Configuration (optional)
@@ -75,7 +75,10 @@ jobs:
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
+          # Handle multi-line question by writing to a file
+          # Use printf to preserve newlines and special characters
+          printf '%s\n' "${{ inputs.question }}" > /tmp/question.txt
           uv run python3 main.py \
-            --question "${{ inputs.question }}" \
+            --question-file /tmp/question.txt \
             --user "${{ inputs.user }}" \
             --time "${{ inputs.time }}"

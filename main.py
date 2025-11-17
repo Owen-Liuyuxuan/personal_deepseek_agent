@@ -93,11 +93,32 @@ def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> b
 def main():
     """Main entry point for the Feishu Assistant Processor."""
     parser = argparse.ArgumentParser(description="Feishu Assistant Processor")
-    parser.add_argument("--question", required=True, help="Question content")
+    parser.add_argument("--question", help="Question content (for single-line questions)")
+    parser.add_argument("--question-file", help="Path to file containing question (for multi-line questions)")
     parser.add_argument("--user", required=True, help="Feishu user")
     parser.add_argument("--time", required=True, help="Time of the question")
     
     args = parser.parse_args()
+    
+    # Handle question input - support both direct argument and file
+    if args.question_file:
+        # Read question from file (supports multi-line)
+        try:
+            with open(args.question_file, 'r', encoding='utf-8') as f:
+                question = f.read().strip()
+        except FileNotFoundError:
+            logger.error(f"Question file not found: {args.question_file}")
+            sys.exit(1)
+        except Exception as e:
+            logger.error(f"Error reading question file: {e}")
+            sys.exit(1)
+    elif args.question:
+        # Use question from command line argument
+        question = args.question
+    else:
+        logger.error("Either --question or --question-file must be provided")
+        parser.print_help()
+        sys.exit(1)
     
     # Initialize configuration
     logger.info("Initializing configuration...")
@@ -125,7 +146,7 @@ def main():
         # Process the question
         logger.info(f"Processing question from {args.user}...")
         result = orchestrator.process_question(
-            question=args.question,
+            question=question,
             user=args.user,
             time=args.time
         )
