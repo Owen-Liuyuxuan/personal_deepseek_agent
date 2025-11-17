@@ -10,52 +10,17 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Import agent classes for LangChain
-# LangChain 1.0+ changed module structure - try multiple import strategies
-AgentExecutor = None
-create_openai_tools_agent = None
-
-# Strategy 1: Direct import from langchain.agents (works in 0.3.x)
+# Import agent creation for LangChain 1.0+
+# LangChain 1.0 uses create_agent from langchain.agents (replaces AgentExecutor and create_openai_tools_agent)
 try:
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-    logger.debug("Successfully imported from langchain.agents")
-except ImportError as e1:
-    logger.debug(f"Direct import failed: {e1}")
-    # Strategy 2: Try importing individually
-    try:
-        from langchain.agents import AgentExecutor
-        from langchain.agents import create_openai_tools_agent
-        logger.debug("Successfully imported individually")
-    except ImportError as e2:
-        logger.debug(f"Individual import failed: {e2}")
-        # Strategy 3: Check if langchain.agents module exists and what it exports
-        try:
-            import langchain.agents as agents_module
-            available = [attr for attr in dir(agents_module) if not attr.startswith('_')]
-            logger.debug(f"Available in langchain.agents: {available[:10]}")
-            # Try to get AgentExecutor if it exists
-            if 'AgentExecutor' in available:
-                AgentExecutor = getattr(agents_module, 'AgentExecutor')
-            if 'create_openai_tools_agent' in available:
-                create_openai_tools_agent = getattr(agents_module, 'create_openai_tools_agent')
-            if AgentExecutor and create_openai_tools_agent:
-                logger.debug("Successfully imported via getattr")
-        except Exception as e3:
-            logger.debug(f"getattr import failed: {e3}")
-            # Strategy 4: Try legacy paths (for older versions)
-            try:
-                from langchain.agents.agent import AgentExecutor  # type: ignore
-                from langchain.agents.openai_tools import create_openai_tools_agent  # type: ignore
-                logger.debug("Successfully imported from legacy paths")
-            except ImportError as e4:
-                logger.warning(f"Failed to import agent classes. All strategies failed.")
-                logger.warning(f"Errors: {e1}, {e2}, {e3}, {e4}")
-                logger.warning("Agent functionality disabled. Tools will be called manually.")
-                AgentExecutor = None
-                create_openai_tools_agent = None
+    from langchain.agents import create_agent
+    logger.debug("Successfully imported create_agent from langchain.agents")
+except ImportError as e:
+    logger.warning(f"Failed to import create_agent from langchain.agents: {e}")
+    logger.warning("Agent functionality will be disabled. Tools will be called manually.")
+    create_agent = None
 
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from assistant.core.config import Config
 from assistant.core.llm_provider import LLMProviderManager
@@ -120,84 +85,47 @@ class PersonalAssistantOrchestrator:
             self.github_tool = GitHubTool(config.github_token, self.memory_store)
             self.tools.append(self.github_tool)
         
-        # Initialize agent
-        self.agent_executor: Optional[AgentExecutor] = None
+        # Initialize agent (LangChain 1.0+ uses create_agent which returns a graph)
+        self.agent_graph = None
         self._initialize_agent()
     
     def _initialize_agent(self) -> None:
-        """Initialize the LangChain agent."""
+        """Initialize the LangChain 1.0+ agent using create_agent."""
         if not self.tools:
             logger.warning("No tools available, agent will be LLM-only")
             return
         
-        # Check if agent classes are available
-        # Use try/except to handle case where variables might not be defined
-        try:
-            agent_executor_available = AgentExecutor is not None
-            create_agent_available = create_openai_tools_agent is not None
-        except NameError:
-            logger.warning("Agent classes not imported, using LLM-only mode")
-            self.agent_executor = None
-            return
-        
-        if not agent_executor_available or not create_agent_available:
-            logger.warning("Agent classes not available, using LLM-only mode")
-            logger.debug(f"AgentExecutor available: {agent_executor_available}, create_openai_tools_agent available: {create_agent_available}")
-            self.agent_executor = None
+        if create_agent is None:
+            logger.warning("create_agent not available, using LLM-only mode")
             return
         
         try:
-            # Create prompt template
-            prompt = ChatPromptTemplate.from_messages([
-                SystemMessage(content="""You are a helpful personal assistant with access to:
+            llm = self.llm_manager.get_llm()
+            llm_type = type(llm).__name__
+            logger.debug(f"Attempting to create agent with LLM type: {llm_type}")
+            
+            # Create agent using LangChain 1.0+ API
+            system_prompt = """You are a helpful personal assistant with access to:
 - Personal memory repository with past interactions and preferences
 - Google Search for current information
 - GitHub operations for repository management
 
 Use the available tools to answer questions accurately. When you have relevant memories, use them. When you need current information, use search. When asked about GitHub repositories, use the GitHub tool.
 
-Always be helpful, accurate, and concise."""),
-                MessagesPlaceholder(variable_name="chat_history"),
-                HumanMessage(content="{input}"),
-                MessagesPlaceholder(variable_name="agent_scratchpad")
-            ])
+Always be helpful, accurate, and concise."""
             
-            # Create agent
-            llm = self.llm_manager.get_llm()
+            self.agent_graph = create_agent(
+                model=llm,
+                tools=self.tools,
+                system_prompt=system_prompt
+            )
             
-            # Try to create agent with tools
-            # Note: create_openai_tools_agent requires OpenAI-compatible tool calling
-            # Some LLM providers (like Gemini/Deepseek) may not support this
-            try:
-                # Check if LLM supports tool calling
-                llm_type = type(llm).__name__
-                logger.debug(f"Attempting to create agent with LLM type: {llm_type}")
-                
-                agent = create_openai_tools_agent(llm, self.tools, prompt)
-                
-                # Create agent executor
-                self.agent_executor = AgentExecutor(
-                    agent=agent,
-                    tools=self.tools,
-                    verbose=True,
-                    handle_parsing_errors=True
-                )
-                
-                logger.info(f"Agent initialized successfully with {len(self.tools)} tool(s)")
-            except Exception as agent_error:
-                error_msg = str(agent_error)
-                logger.warning(f"Could not create agent with tools: {error_msg}")
-                # Check if it's a tool calling compatibility issue
-                if any(keyword in error_msg.lower() for keyword in ["tool", "function", "binding", "not support"]):
-                    logger.info("LLM may not support OpenAI-compatible tool calling. Tools will be called manually.")
-                else:
-                    logger.info("Falling back to LLM-only mode (tools will be called manually)")
-                self.agent_executor = None
-            
+            logger.info(f"Agent initialized successfully with {len(self.tools)} tool(s)")
         except Exception as e:
-            logger.error(f"Error initializing agent: {e}")
-            logger.info("Falling back to LLM-only mode")
-            self.agent_executor = None
+            error_msg = str(e)
+            logger.warning(f"Could not create agent with tools: {error_msg}")
+            logger.info("Falling back to LLM-only mode (tools will be called manually)")
+            self.agent_graph = None
     
     def process_question(self, question: str, user: str, time: str) -> Dict[str, Any]:
         """
@@ -241,9 +169,13 @@ Always be helpful, accurate, and concise."""),
             logger.info(f"Performing search: {search_query}")
             search_results = self.search_tool._run(search_query)
             
-            if self.agent_executor:
+            if self.agent_graph:
                 # Try agent with search results in context
                 try:
+                    # LangChain 1.0+ agent graph uses different invoke format
+                    # The graph expects messages, not a single input string
+                    from langchain_core.messages import HumanMessage
+                    
                     prompt = f"""You are a helpful personal assistant. Answer the question using the search results and context provided.
 
 {full_context}
@@ -255,11 +187,27 @@ Question: {question}
 
 Provide a comprehensive answer based on the search results above."""
                     
-                    response = self.agent_executor.invoke({
-                        "input": prompt,
-                        "chat_history": []
+                    # LangChain 1.0+ agent graph expects input dict with messages
+                    response = self.agent_graph.invoke({
+                        "messages": [HumanMessage(content=prompt)]
                     })
-                    answer = response.get("output", "")
+                    
+                    # Extract answer from response (format may vary)
+                    if isinstance(response, dict):
+                        # Check common response formats
+                        if "messages" in response:
+                            # Get last message content
+                            messages = response["messages"]
+                            if messages:
+                                answer = messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1])
+                            else:
+                                answer = ""
+                        elif "output" in response:
+                            answer = response["output"]
+                        else:
+                            answer = str(response)
+                    else:
+                        answer = str(response)
                     
                     # If agent gave generic response, use direct LLM call instead
                     if not answer or len(answer) < 50 or "how can i help" in answer.lower():
@@ -280,14 +228,31 @@ Provide a comprehensive answer based on the search results above."""
                     question, 
                     f"{full_context}\n\n**Search Results:**\n{search_results}"
                 )
-        elif self.agent_executor:
+        elif self.agent_graph:
             # Use agent without search
             try:
-                response = self.agent_executor.invoke({
-                    "input": f"{full_context}\n\nQuestion: {question}",
-                    "chat_history": []
+                from langchain_core.messages import HumanMessage
+                
+                # LangChain 1.0+ agent graph expects input dict with messages
+                prompt = f"{full_context}\n\nQuestion: {question}"
+                response = self.agent_graph.invoke({
+                    "messages": [HumanMessage(content=prompt)]
                 })
-                answer = response.get("output", "")
+                
+                # Extract answer from response
+                if isinstance(response, dict):
+                    if "messages" in response:
+                        messages = response["messages"]
+                        if messages:
+                            answer = messages[-1].content if hasattr(messages[-1], 'content') else str(messages[-1])
+                        else:
+                            answer = ""
+                    elif "output" in response:
+                        answer = response["output"]
+                    else:
+                        answer = str(response)
+                else:
+                    answer = str(response)
                 
                 # If agent gave generic response, use direct LLM call instead
                 if not answer or len(answer) < 50 or "how can i help" in answer.lower():
