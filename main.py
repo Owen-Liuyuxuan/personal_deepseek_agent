@@ -41,7 +41,6 @@ def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> b
         True if successful, False otherwise
     """
     print(f"Sending message to Feishu: {title}, {timestamp}, {text}")
-    return True
     if not webhook_url:
         print("Error: FEISHU_WEBHOOK_URL environment variable is not set", file=sys.stderr)
         return False
