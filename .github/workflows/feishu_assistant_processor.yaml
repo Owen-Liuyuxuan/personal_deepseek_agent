@@ -28,10 +28,14 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          uv pip install -e .
 
       - name: Configure Git
         run: |
@@ -67,7 +71,7 @@ jobs:
           OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
-          python main.py \
+          uv run python3 main.py \
             --question "${{ inputs.question }}" \
             --user "${{ inputs.user }}" \
             --time "${{ inputs.time }}"

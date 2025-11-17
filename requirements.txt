@@ -10,6 +10,7 @@ schedule>=1.1.0
 # Note: Using compatible version ranges to avoid import errors
 langchain>=0.3.0,<0.4.0
 langchain-openai>=0.2.0,<0.3.0
+langchain-google-genai==0.0.8
 # Note: langchain-google-genai is optional due to version compatibility
 # The system will automatically use google-generativeai as fallback if needed
 google-generativeai>=0.3.0
