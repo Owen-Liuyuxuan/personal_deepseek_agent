@@ -33,10 +33,39 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
       - name: Run Feishu Assistant Processor
         env:
+          # Feishu Configuration
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          
+          # GitHub Configuration
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+          # LLM Configuration (set one of these based on your provider)
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # Memory Repository Configuration
+          MEMORY_REPO_URL: ${{ secrets.MEMORY_REPO_URL }}
+          MEMORY_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MEMORY_REPO_PATH: ./memory_repo
+          
+          # Google Search Configuration (optional)
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+          
+          # Model Configuration (optional, defaults provided in code)
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
           python main.py \
             --question "${{ inputs.question }}" \

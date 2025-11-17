@@ -3,7 +3,8 @@
 Feishu Assistant Processor
 
 This script receives inputs from GitHub Actions workflow,
-processes them, and sends a message to Feishu via webhook.
+processes them using the Personal Assistant system,
+and sends a message to Feishu via webhook.
 """
 
 import os
@@ -11,29 +12,19 @@ import sys
 import argparse
 import requests
 import json
+import logging
 from datetime import datetime
 from typing import Dict, Any
 
+from assistant.core.config import Config
+from assistant.core.orchestrator import PersonalAssistantOrchestrator
 
-def dummy_process(question: str, user: str, time: str) -> Dict[str, Any]:
-    """
-    Dummy processing function for the received inputs.
-    
-    Args:
-        question: The question content
-        user: The Feishu user
-        time: The time of the question
-        
-    Returns:
-        A dictionary containing processed information
-    """
-    # Dummy processing - just return the inputs for now
-    return {
-        "processed": True,
-        "question": question,
-        "user": user,
-        "time": time
-    }
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> bool:
@@ -49,6 +40,7 @@ def send_to_feishu(webhook_url: str, title: str, timestamp: str, text: str) -> b
     Returns:
         True if successful, False otherwise
     """
+    print(f"Sending message to Feishu: {title}, {timestamp}, {text}")
     if not webhook_url:
         print("Error: FEISHU_WEBHOOK_URL environment variable is not set", file=sys.stderr)
         return False
@@ -107,34 +99,87 @@ def main():
     
     args = parser.parse_args()
     
+    # Initialize configuration
+    logger.info("Initializing configuration...")
+    config = Config()
+    
+    # Validate configuration
+    validation = config.validate()
+    if not validation["valid"]:
+        logger.error(f"Configuration validation failed. Missing: {validation['missing']}")
+        print(f"Error: Missing required configuration: {', '.join(validation['missing'])}", file=sys.stderr)
+        sys.exit(1)
+    
     # Get webhook URL from environment variable (set via GitHub secret)
-    webhook_url = os.environ.get("FEISHU_WEBHOOK_URL")
+    webhook_url = config.feishu_webhook_url
     
     if not webhook_url:
         print("Error: FEISHU_WEBHOOK_URL environment variable is not set", file=sys.stderr)
         sys.exit(1)
     
-    # Process the inputs (dummy function for now)
-    processed_data = dummy_process(args.question, args.user, args.time)
-    
-    # Prepare message content
-    # Text should contain all received inputs
-    text_content = f"Question: {args.question}\nUser: {args.user}\nTime: {args.time}"
-    
-    # Generate timestamp
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Create title
-    title = "Feishu Assistant Response"
-    
-    # Send message to Feishu
-    success = send_to_feishu(webhook_url, title, timestamp, text_content)
-    
-    if not success:
-        print("Failed to send message to Feishu", file=sys.stderr)
+    try:
+        # Initialize orchestrator
+        logger.info("Initializing Personal Assistant Orchestrator...")
+        orchestrator = PersonalAssistantOrchestrator(config)
+        
+        # Process the question
+        logger.info(f"Processing question from {args.user}...")
+        result = orchestrator.process_question(
+            question=args.question,
+            user=args.user,
+            time=args.time
+        )
+        
+        # Prepare message content
+        # Only include the answer, no metadata
+        answer = result.get("answer", "I apologize, but I couldn't generate a response.")
+        
+        # Clean up the answer - remove any generic greetings if it's a real question
+        if args.question and len(args.question) > 10:
+            # Remove generic greetings that don't answer the question
+            generic_greetings = [
+                "hello! how can i help you today?",
+                "hello! how can i help you?",
+                "how can i help you today?",
+                "how can i help you?",
+            ]
+            answer_lower = answer.lower().strip()
+            if any(greeting in answer_lower for greeting in generic_greetings):
+                # If answer is just a greeting, try to get a better response
+                logger.warning("Received generic greeting instead of answer, this should not happen")
+        
+        text_content = answer
+        
+        # Generate timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create title
+        title = "Personal Assistant Response"
+        
+        # Send message to Feishu
+        logger.info("Sending response to Feishu...")
+        success = send_to_feishu(webhook_url, title, timestamp, text_content)
+        
+        if not success:
+            print("Failed to send message to Feishu", file=sys.stderr)
+            sys.exit(1)
+        
+        logger.info("Processing completed successfully")
+        print("Processing completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error processing question: {e}", exc_info=True)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        
+        # Try to send error message to Feishu
+        try:
+            error_text = f"An error occurred while processing your question:\n\n{str(e)}\n\nQuestion: {args.question}"
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            send_to_feishu(webhook_url, "Error", timestamp, error_text)
+        except:
+            pass
+        
         sys.exit(1)
-    
-    print("Processing completed successfully")
 
 
 if __name__ == "__main__":
