@@ -41,9 +41,17 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
+          # Disable Git credential prompts in CI/CD
+          git config --global credential.helper store
+          export GIT_TERMINAL_PROMPT=0
+          export GIT_ASKPASS=echo
 
       - name: Run Feishu Assistant Processor
         env:
+          # Git Configuration (disable prompts)
+          GIT_TERMINAL_PROMPT: 0
+          GIT_ASKPASS: echo
+          
           # Feishu Configuration
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           
@@ -59,7 +67,7 @@ jobs:
           
           # Memory Repository Configuration
           MEMORY_REPO_URL: ${{ secrets.MEMORY_REPO_URL }}
-          MEMORY_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MEMORY_REPO_TOKEN: ${{ secrets.MEMORY_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           MEMORY_REPO_PATH: ./memory_repo
           
           # Google Search Configuration (optional)

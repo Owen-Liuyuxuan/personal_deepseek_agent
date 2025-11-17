@@ -35,6 +35,14 @@ class MemoryRepositoryManager:
         # Prepare URL with token if provided
         self._prepare_repo_url()
     
+    def _mask_url(self, url: str) -> str:
+        """Mask sensitive information in URL for logging."""
+        if "@" in url:
+            parts = url.split("@")
+            if len(parts) == 2:
+                return f"{parts[0][:10]}***@{parts[1]}"
+        return url
+    
     def _prepare_repo_url(self) -> None:
         """Prepare repository URL with authentication token if needed."""
         if self.token and self.token not in self.repo_url:
@@ -42,10 +50,10 @@ class MemoryRepositoryManager:
             if self.repo_url.startswith("https://"):
                 # Format: https://token@github.com/user/repo.git
                 if "@" not in self.repo_url:
-                    self.repo_url = self.repo_url.replace(
-                        "https://",
-                        f"https://{self.token}@"
-                    )
+                    # Remove https:// prefix
+                    url_without_prefix = self.repo_url.replace("https://", "")
+                    # Insert token
+                    self.repo_url = f"https://{self.token}@{url_without_prefix}"
             elif self.repo_url.startswith("git@"):
                 # For SSH, token is not used directly
                 pass
@@ -66,17 +74,81 @@ class MemoryRepositoryManager:
                 shutil.rmtree(self.repo_path)
             
             if not self.repo_path.exists():
-                logger.info(f"Cloning memory repository from {self.repo_url}")
-                self.repo = Repo.clone_from(self.repo_url, self.repo_path)
-                logger.info(f"Repository cloned successfully to {self.repo_path}")
+                logger.info(f"Cloning memory repository from {self._mask_url(self.repo_url)}")
+                # Configure Git to avoid credential prompts in CI/CD
+                import subprocess
+                import os
+                
+                # Set Git environment variables to avoid interactive prompts
+                env = os.environ.copy()
+                env['GIT_TERMINAL_PROMPT'] = '0'
+                env['GIT_ASKPASS'] = 'echo'
+                
+                # Configure Git globally to avoid prompts
+                subprocess.run(
+                    ['git', 'config', '--global', 'credential.helper', 'store'],
+                    check=False,
+                    capture_output=True,
+                    env=env
+                )
+                
+                # Clone repository
+                # Note: GitPython's clone_from doesn't support env parameter directly,
+                # so we set environment variables before calling it
+                original_env = {}
+                for key in ['GIT_TERMINAL_PROMPT', 'GIT_ASKPASS']:
+                    if key in env:
+                        original_env[key] = os.environ.get(key)
+                        os.environ[key] = env[key]
+                
+                try:
+                    self.repo = Repo.clone_from(self.repo_url, self.repo_path)
+                    logger.info(f"Repository cloned successfully to {self.repo_path}")
+                finally:
+                    # Restore original environment
+                    for key, value in original_env.items():
+                        if value is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = value
             else:
                 logger.info(f"Updating existing repository at {self.repo_path}")
                 self.repo = Repo(self.repo_path)
                 
-                # Pull latest changes
-                origin = self.repo.remotes.origin
-                origin.pull()
-                logger.info("Repository updated successfully")
+                # Update remote URL if token changed
+                if self.token:
+                    origin = self.repo.remotes.origin
+                    current_url = origin.url
+                    if self.token not in current_url:
+                        # Update remote URL with token
+                        new_url = self.repo_url
+                        origin.set_url(new_url)
+                        logger.debug("Updated remote URL with token")
+                
+                # Pull latest changes with environment to avoid prompts
+                import os
+                env = os.environ.copy()
+                env['GIT_TERMINAL_PROMPT'] = '0'
+                env['GIT_ASKPASS'] = 'echo'
+                
+                # Set environment variables for Git operations
+                original_env = {}
+                for key in ['GIT_TERMINAL_PROMPT', 'GIT_ASKPASS']:
+                    if key in env:
+                        original_env[key] = os.environ.get(key)
+                        os.environ[key] = env[key]
+                
+                try:
+                    origin = self.repo.remotes.origin
+                    origin.pull()
+                    logger.info("Repository updated successfully")
+                finally:
+                    # Restore original environment
+                    for key, value in original_env.items():
+                        if value is None:
+                            os.environ.pop(key, None)
+                        else:
+                            os.environ[key] = value
             
             return True
             
