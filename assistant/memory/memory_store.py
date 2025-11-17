@@ -98,7 +98,7 @@ class MemoryStore:
                     from langchain_google_genai import GoogleGenerativeAIEmbeddings
                 except (ImportError, TypeError) as e:
                     logger.warning(f"langchain-google-genai not available: {e}")
-                    logger.warning("Install with: pip install langchain-google-genai==0.0.8")
+                    logger.warning("Install with: pip install langchain-google-genai>=3.0.0")
             elif not self.config.gemini_api_key:
                 logger.warning("GEMINI_API_KEY not set but Gemini embeddings requested")
             else:

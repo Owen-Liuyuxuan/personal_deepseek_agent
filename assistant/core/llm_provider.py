@@ -69,7 +69,14 @@ class LLMProviderManager:
                             f"Using direct Google Generative AI API instead."
                         )
                         try:
-                            import google.generativeai as genai
+                            # Try to import google-generativeai (optional dependency)
+                            try:
+                                import google.generativeai as genai
+                            except ImportError:
+                                raise ImportError(
+                                    "google-generativeai is not installed. "
+                                    "Install with: pip install google-generativeai"
+                                )
                             genai.configure(api_key=api_key)
                             # Create a wrapper class for LangChain compatibility
                             from langchain_core.language_models import BaseChatModel
@@ -140,7 +147,7 @@ class LLMProviderManager:
                     else:
                         raise ValueError(
                             f"Gemini provider requires langchain-google-genai. "
-                            f"Install with: pip install langchain-google-genai==0.0.8. "
+                            f"Install with: pip install langchain-google-genai>=3.0.0. "
                             f"Error: {error_msg}"
                         )
             
